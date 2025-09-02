@@ -20,10 +20,10 @@ const Task& getTask(){
     
     extract_predicates();
     // classify_predicates();
-    // extract_objects();
+    extract_objects();
     // set_type_names();
     // construct_initial_state();
-    // convert_action_schema();
+    convert_action_schema();
     // set_goal_state();
 
    return task;
@@ -34,16 +34,26 @@ void extract_predicates(){
     int index=0;
     std::unordered_set<std::string> unique_predicate;
 
-    // extract predicate from facts
-    for (auto f : datalog.get_facts()){
-        extract_predicate_from_datalogatom(f,unique_predicate,index);
-    }
-    // extract predicate from rules
-    for (const auto &r : datalog.get_rules()){
-        extract_predicate_from_datalogatom(r->get_effect(),unique_predicate,index);
-        for(auto atom :r->get_conditions()){
-            extract_predicate_from_datalogatom(atom,unique_predicate,index);
+    for (auto &name : datalog.predicate_names) {
+        // extract predicate from facts
+        for (auto f : datalog.get_facts()){
+            extract_predicate_from_datalogatom(f,unique_predicate,index, name);
         }
+        // extract predicate from rules
+        for (const auto &r : datalog.get_rules()){
+            extract_predicate_from_datalogatom(r->get_effect(),unique_predicate,index, name);
+            for(auto atom :r->get_conditions()){
+                extract_predicate_from_datalogatom(atom,unique_predicate,index, name);
+            }
+        }
+
+       if(unique_predicate.count(name) == 0){
+            std::string s = "useless"+std::to_string(index);
+            std::vector<int> types;
+            task.add_predicate(s, index, 0,false,types);
+        }
+
+        index++;
     }
 
     //test
@@ -51,35 +61,23 @@ void extract_predicates(){
     std::cout << "=== DATALOG PREDICATE ANALYSIS ===" << std::endl;
     std::cout << "Total extracted predicates: " << task.predicates.size() << std::endl;
     
- 
-    try {
-        int count = 0;
-        for (int i = 0; i < 10000; ++i) {  
-            try {
-                std::string name = datalog.get_predicate_name_by_idx(i);
-                count++;
-                if (i < 20) {  
-                    std::cout << "Datalog[" << i << "] = '" << name << "'" << std::endl;
-                }
-            } catch (const std::exception& e) {
-                std::cout << "Datalog predicate_names size appears to be: " << count << std::endl;
-                break;
-            }
-        }
-    } catch (...) {
-        std::cout << "Error while checking datalog predicate size" << std::endl;
-    }
+    std::cout << "Total datalog predicates: "<<datalog.predicate_names.size()<< std::endl;
     
+    for (auto &name : datalog.predicate_names) {
+        std::cout << name << std::endl;
+    }
+   
     std::cout << "=== END ANALYSIS ===" << std::endl;
 
    
 };
-void extract_predicate_from_datalogatom(const datalog::DatalogAtom & atom,std::unordered_set<std::string> & unique_predicate, int & index){
+void extract_predicate_from_datalogatom(const datalog::DatalogAtom & atom,std::unordered_set<std::string> & unique_predicate, int & index, const std::string &ref_name){
     int dl_index = atom.get_predicate_index();
     std::string name = datalog.get_predicate_name_by_idx(dl_index);
     if(unique_predicate.count(name)>0){
         return;
     }
+    if (name != ref_name) return;
     unique_predicate.insert(name);
 
     int arity= atom.get_arguments().size();
@@ -94,15 +92,11 @@ void extract_predicate_from_datalogatom(const datalog::DatalogAtom & atom,std::u
         argu_pos++;
 
     }
-    
-    
-    
     task.add_predicate( name, index, arity,false,types);
     if (arity==0){
         task.nullary_predicates.insert(index);
     }
    
-    index++;
         
 
 }
@@ -215,20 +209,20 @@ void convert_action_schema(){
 
         int par_index=0;
         for (auto pre : r->get_conditions()){
-            int pre_idx=pre.get_index();
+            int pre_idx=pre.get_predicate_index();
             std::string pred_name = datalog.get_predicate_name_by_idx(pre_idx);
-            int new_idx= task.get_predicate_index(datalog.get_predicate_name_by_idx(pre_idx));
+            int new_idx= task.get_predicate_index(pred_name);
             if(new_idx == -1) {
-                // std::cout << "Missing predicate: '" << pred_name << "' (datalog_index: " << pre_idx << ")" << std::endl;
+                std::cout << "Missing predicate: '" << pred_name << "' (datalog_index: " << pre_idx << ")" << std::endl;
                 continue;
             }
             if(pre.is_nullary()){    
                 if(new_idx >= 0 && new_idx < positive_nullary_precon.size()) {
                     positive_nullary_precon[new_idx]=true;
                  } 
-                // else {
-                //     std::cout << "Warning: new_idx " << new_idx << " out of bounds, size=" << positive_nullary_precon.size() << std::endl;
-                //  }
+                else {
+                    std::cout << "Warning: new_idx " << new_idx << " out of bounds, size=" << positive_nullary_precon.size() << std::endl;
+                 }
                 continue;
             }
             std::vector<Argument> arg_vec;
@@ -236,7 +230,7 @@ void convert_action_schema(){
                 
                 if(arg.is_object()!=1){
                     if(unique_param.count(arg.get_index())==0){
-                        std::string para_name="var"+std::to_string(arg.get_index());
+                        std::string para_name="?var"+std::to_string(arg.get_index());
                         Parameter argument = Parameter(para_name,par_index,1);
                         parameters.emplace_back(argument);
                         var_org_new_idx[arg.get_index()]=par_index;
@@ -250,7 +244,7 @@ void convert_action_schema(){
                 }
                 
             }
-            int predicate_idx=pre.get_index();
+            int predicate_idx=pre.get_predicate_index();
 
             std::string name= datalog.get_predicate_name_by_idx(predicate_idx);
             int new_index= task.get_predicate_index(name);
@@ -259,40 +253,40 @@ void convert_action_schema(){
             pres.emplace_back(pre_con);
 
 
-        }// error detected above
-        // auto eff = r->get_effect();
-        // int eff_idx=eff.get_index();
-        // if(eff.is_nullary()){
-        //     positive_nullary_eff[eff_idx]=true;
-        // }else{
-        // std::vector<Argument> eff_vec;
-        // for (auto arg: eff.get_arguments()){
+        }
+        auto eff = r->get_effect();
+        int eff_idx=eff.get_predicate_index();
+        if(eff.is_nullary()){
+            positive_nullary_eff[eff_idx]=true;
+        }else{
+        std::vector<Argument> eff_vec;
+        for (auto arg: eff.get_arguments()){
             
-        //     if(arg.is_object()!=1){
-        //         if(unique_param.count(arg.get_index())==0){
-        //             std::string para_name="var"+std::to_string(arg.get_index());
+            if(arg.is_object()!=1){
+                if(unique_param.count(arg.get_index())==0){
+                    std::string para_name="?var"+std::to_string(arg.get_index());
                     
-        //             Parameter argument = Parameter(para_name,par_index,1);
-        //             parameters.emplace_back(argument);
+                    Parameter argument = Parameter(para_name,par_index,1);
+                    parameters.emplace_back(argument);
                     
-        //             var_org_new_idx[arg.get_index()]=par_index;
-        //             unique_param.emplace(arg.get_index());
-        //             par_index++;
+                    var_org_new_idx[arg.get_index()]=par_index;
+                    unique_param.emplace(arg.get_index());
+                    par_index++;
                 
-        //         }    
-        //         eff_vec.emplace_back(Argument(var_org_new_idx[arg.get_index()],false,false));
-        //     }else{
-        //         eff_vec.emplace_back(Argument(arg.get_index(),true,false));
+                }    
+                eff_vec.emplace_back(Argument(var_org_new_idx[arg.get_index()],false,false));
+            }else{
+                eff_vec.emplace_back(Argument(arg.get_index(),true,false));
 
-        //     }
+            }
                 
 
-        // }
+        }
         
         
-        // std::string name= datalog.get_predicate_name_by_idx(eff_idx);
-        // Atom eff_atom =  Atom(std::move(eff_vec),std::move(name),eff_idx,false);
-        // effs.emplace_back(eff_atom);}
+        std::string name= datalog.get_predicate_name_by_idx(eff_idx);
+        Atom eff_atom =  Atom(std::move(eff_vec),std::move(name),eff_idx,false);
+        effs.emplace_back(eff_atom);}
         
 
         auto cost = r->get_weight();

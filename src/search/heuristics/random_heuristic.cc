@@ -18,8 +18,8 @@ RandomHeuristic:: RandomHeuristic(const Task &task, DatalogTransformationOptions
     
     Task new_task = dltt.getTask();
 
-    // dumpToPDDLDomain(task, "domain.pddl");
-    // dumpToPDDLProblem(task.get_initial_state(), task, "problem.pddl");
+    dumpToPDDLDomain(new_task, "domain.pddl");
+    dumpToPDDLProblem(new_task.get_initial_state(), new_task, "problem.pddl");
        
 
 
